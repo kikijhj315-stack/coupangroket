@@ -317,6 +317,10 @@ elif menu in ["📊 등록 현황", "🎁 프로모션 관리", "🏷️ SKU 관
                 '대분류', '계절', '중분류', '소분류', '성별', '모델그룹', '몰재고', '원가', '담당 BM', '로켓등록',
                 '민영 희망손익율', '민영 공급가', '민영 손익', '민영 손익율', '쿠팡판매가', '쿠팡손익', '쿠팡손익율'
             ]
+            
+            if not is_admin:
+                cols_1_1.remove('민영 희망손익율')
+                
             for c in cols_1_1:
                 if c not in grouped_df.columns: grouped_df[c] = ''
             df_1_1 = grouped_df[cols_1_1]
