@@ -313,6 +313,26 @@ elif menu in ["📊 등록 현황", "🎁 프로모션 관리", "🏷️ SKU 관
 
             grouped_df = get_grouped_and_calculated(filtered_df, db_settings)
             
+            # --- 상태별 요약 지표 표시 (관리자/일반 사용자 공통) ---
+            if '로켓등록' in grouped_df.columns:
+                status_counts = grouped_df['로켓등록'].value_counts()
+                
+                total_cnt = len(grouped_df)
+                ready_cnt = status_counts.get("등록준비중", 0)
+                price_cnt = status_counts.get("가격검수중", 0)
+                product_cnt = status_counts.get("상품검수중", 0)
+                done_cnt = status_counts.get("등록완료", 0)
+                reject_cnt = status_counts.get("반려", 0)
+                
+                m1, m2, m3, m4, m5, m6 = st.columns(6)
+                m1.metric("총 모델그룹", f"{total_cnt}건")
+                m2.metric("등록준비중", f"{ready_cnt}건")
+                m3.metric("가격검수중", f"{price_cnt}건")
+                m4.metric("상품검수중", f"{product_cnt}건")
+                m5.metric("등록완료", f"{done_cnt}건")
+                m6.metric("반려", f"{reject_cnt}건")
+                st.markdown("<br>", unsafe_allow_html=True)
+            
             cols_1_1 = [
                 '대분류', '계절', '중분류', '소분류', '성별', '모델그룹', '몰재고', '원가', '담당 BM', '로켓등록',
                 '민영 희망손익율', '민영 공급가', '민영 손익', '민영 손익율', '쿠팡판매가', '쿠팡손익', '쿠팡손익율'
