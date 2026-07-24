@@ -591,3 +591,8 @@ elif menu == "🚚 출고리스트 파일 생성":
                         file_name=output_filename,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
+
+
+elif menu == '📦 패킹리스트 파일 생성':
+    import step4_packing_list
+    step4_packing_list.render_packing_list_page()
