@@ -96,6 +96,7 @@ if is_admin:
 st.sidebar.markdown("<br>", unsafe_allow_html=True) # 간격 띄우기
 st.sidebar.markdown("#### 📂 출고")
 nav_button("🚚 출고리스트 파일 생성")
+nav_button("📦 패킹리스트 파일 생성")
 
 menu = st.session_state.active_menu
 
