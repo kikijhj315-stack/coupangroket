@@ -11,14 +11,12 @@ def init_gemini():
         api_key = st.secrets["GEMINI_API_KEY"]
         genai.configure(api_key=api_key)
         
-        # 최신(2026년 이후) Gemini API 모델 리스트로 업데이트
         model_names = [
             'gemini-3.5-flash',
             'gemini-2.5-flash',
             'gemini-flash-latest',
             'gemini-3.6-flash'
         ]
-        
         return model_names
     except Exception as e:
         return None
@@ -27,16 +25,21 @@ def extract_info_from_image(model_names, image_bytes):
     try:
         img = Image.open(io.BytesIO(image_bytes))
         prompt = """
-        이 사진에는 택배 박스와 하얀색 라벨 스티커가 있습니다.
-        1. 박스 위에 매직이나 펜으로 크게 쓰여진 '박스번호'(숫자)를 찾아주세요.
-        2. 하얀색 라벨 스티커에 인쇄된 '모델명'(혹은 출고모델명, 단품명)과 '수량'을 찾아주세요. 라벨이 여러 개라면 모두 찾아주세요.
-        
+        사진에는 택배 박스 위의 라벨 스티커가 있습니다. 라벨 스티커에서 다음 정보를 정확히 추출하세요.
+        1. 배송지: 괄호 () 안에 적힌 텍스트 (예: 대구3)
+        2. 모델명: 영어와 숫자가 혼합된 상품코드 (예: TM-FSZ07-ZZWHT)
+        3. 단품명(사이즈): 수량 앞의 텍스트 (예: 2XL)
+        4. 수량: 대괄호 [] 안에 적힌 숫자 (예: 4)
+        5. 박스번호: 박스 표면에 매직이나 펜으로 크게 적힌 숫자 (사진에 매직 글씨가 안보이면 빈문자열 "")
+
         반드시 아래의 순수 JSON 형식으로만 답변해주세요. 다른 설명은 절대 추가하지 마세요.
         [
           {
-            "box_no": "매직으로 쓰인 박스번호 (예: 1, 2, 3... 없으면 빈문자열)",
-            "model_name": "라벨에 적힌 모델명 및 단품명 전체 텍스트",
-            "qty": 수량 (숫자만, 예: 10)
+            "destination": "대구3",
+            "model_name": "TM-FSZ07-ZZWHT",
+            "item_name": "2XL",
+            "qty": 4,
+            "box_no": "1"
           }
         ]
         """
@@ -48,7 +51,6 @@ def extract_info_from_image(model_names, image_bytes):
                 response = model.generate_content([prompt, img])
                 text = response.text.strip()
                 
-                # Markdown JSON block 제거 처리
                 if text.startswith("```json"):
                     text = text[7:]
                 if text.startswith("```"):
@@ -62,7 +64,6 @@ def extract_info_from_image(model_names, image_bytes):
                 last_error = e
                 continue
                 
-        # 모든 모델 실패 시 마지막 에러 출력
         st.error(f"이미지 판독 중 오류 발생 (모든 AI 모델 시도 실패): {last_error}")
         return []
         
@@ -71,11 +72,8 @@ def extract_info_from_image(model_names, image_bytes):
         return []
 
 def match_and_generate_packing_list(df_req, ocr_results):
-    # df_req: 출고요청파일 데이터프레임
-    # 공백 제거 및 열 이름 정규화
     df_req.columns = df_req.columns.astype(str).str.strip().str.replace('\n', '')
     
-    # 필수 열 유연한 매칭
     col_mapping = {
         '발주번호': ['발주번호', '발주 번호', '발주서번호'],
         '배송지': ['배송지', '도착지', '배송처'],
@@ -85,7 +83,6 @@ def match_and_generate_packing_list(df_req, ocr_results):
         '출고요청': ['출고요청', '출고요청수량', '수량', '요청수량']
     }
     
-    # 엑셀에 있는 실제 컬럼명으로 매핑 찾기
     actual_cols = {}
     for req_key, possible_names in col_mapping.items():
         found = False
@@ -99,22 +96,19 @@ def match_and_generate_packing_list(df_req, ocr_results):
             st.warning(f"현재 엑셀에서 인식된 컬럼들: {list(df_req.columns)}")
             return None
             
-    # 매칭을 위해 복사본 생성 및 박스번호 컬럼 추가
     df = df_req.copy()
-    
-    # 코드 내부에서 사용할 통일된 컬럼명으로 변경
     df.rename(columns={actual_cols[k]: k for k in col_mapping.keys()}, inplace=True)
     
     df['박스번호'] = ''
     df['출고요청'] = pd.to_numeric(df['출고요청'], errors='coerce').fillna(0).astype(int)
     
-    # OCR 결과 매칭 (매우 단순화된 휴리스틱 매칭)
-    # OCR에서 추출된 model_name 텍스트 안에 엑셀의 '출고모델명'이나 '단품명'이 포함되어 있고 수량이 일치하면 매칭
     matched_indices = set()
     
     for item in ocr_results:
-        box_no = item.get('box_no', '')
-        model_name = str(item.get('model_name', '')).strip().lower()
+        box_no = str(item.get('box_no', '')).strip()
+        dest = str(item.get('destination', '')).strip().lower().replace(' ', '')
+        model_name = str(item.get('model_name', '')).strip().lower().replace(' ', '')
+        item_name = str(item.get('item_name', '')).strip().lower().replace(' ', '')
         qty = item.get('qty', 0)
         
         try:
@@ -122,27 +116,23 @@ def match_and_generate_packing_list(df_req, ocr_results):
         except:
             continue
             
-        if not box_no or not model_name:
+        if not box_no:
             continue
             
-        # 매칭 후보 찾기
         for idx, row in df.iterrows():
             if idx in matched_indices:
                 continue
                 
-            excel_model = str(row['출고모델명']).strip().lower()
-            excel_item = str(row['단품명']).strip().lower()
+            excel_dest = str(row['배송지']).strip().lower().replace(' ', '')
+            excel_model = str(row['출고모델명']).strip().lower().replace(' ', '')
+            excel_item = str(row['단품명']).strip().lower().replace(' ', '')
             excel_qty = row['출고요청']
             
-            # 수량이 일치하고, 라벨 텍스트에 출고모델명 또는 단품명이 포함되어 있는 경우
-            if excel_qty == qty and (excel_model in model_name or excel_item in model_name):
+            if excel_qty == qty and excel_model == model_name and excel_item == item_name and (dest in excel_dest or excel_dest in dest):
                 df.at[idx, '박스번호'] = box_no
                 matched_indices.add(idx)
-                break # 이 라벨은 매칭 완료
+                break
                 
-    # 최종 출력 양식 생성
-    # A열 발주번호, B열 출고모델명, C열 단품명, D열 수량, E열 박스번호, F열 팔렛트번호, G열 배송지, H열 상품바코드, I열 매핑키
-    
     out_df = pd.DataFrame()
     out_df['발주번호'] = df['발주번호']
     out_df['출고모델명'] = df['출고모델명']
@@ -154,8 +144,9 @@ def match_and_generate_packing_list(df_req, ocr_results):
     out_df['배송지'] = df['배송지']
     out_df['상품바코드'] = df['상품바코드']
     
-    # 정렬: 1순위 박스번호, 2순위 배송지
-    # 박스번호가 빈칸이거나 문자가 섞여있을 수 있으므로 임시 숫자 변환하여 정렬용 키 생성
+    # 중복여부 파악 (배송지, 출고모델명, 단품명이 동일한 건)
+    out_df['중복여부'] = out_df.duplicated(subset=['배송지', '출고모델명', '단품명'], keep=False)
+    
     temp_box_num = pd.to_numeric(df['박스번호'], errors='coerce').fillna(999999).astype(int)
     out_df['sort_box'] = temp_box_num.astype(str).str.zfill(10)
     
@@ -164,23 +155,42 @@ def match_and_generate_packing_list(df_req, ocr_results):
     
     return out_df
 
-def generate_excel_bytes(df):
+def generate_excel_bytes(df, ocr_results):
     output = io.BytesIO()
+    from openpyxl.styles import PatternFill
+    dup_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+    
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='패킹리스트')
-        worksheet = writer.sheets['패킹리스트']
+        # Sheet 1: 패킹리스트
+        df_out = df.drop(columns=['중복여부'])
+        df_out.to_excel(writer, index=False, sheet_name='패킹리스트')
+        ws1 = writer.sheets['패킹리스트']
         
-        # I열 수식 삽입 (=A2&"_"&H2) - 엑셀은 1-based index이고 헤더가 1행이므로 데이터는 2행부터
-        # 헤더 삽입
-        worksheet.cell(row=1, column=9, value="매핑키")
-        for idx in range(len(df)):
+        ws1.cell(row=1, column=9, value="매핑키")
+        for idx, row in df.iterrows():
             row_num = idx + 2
-            # I열 (column=9)
-            worksheet.cell(row=row_num, column=9, value=f'=A{row_num}&"_"&H{row_num}')
+            ws1.cell(row=row_num, column=9, value=f'=A{row_num}&"_"&H{row_num}')
             
-        # 열 너비 조정
+            if row['중복여부']:
+                for col in range(1, 10):
+                    ws1.cell(row=row_num, column=col).fill = dup_fill
+                    
         for col_letter, width in zip(['A','B','C','D','E','F','G','H','I'], [15, 20, 15, 8, 10, 15, 20, 15, 25]):
-            worksheet.column_dimensions[col_letter].width = width
+            ws1.column_dimensions[col_letter].width = width
+            
+        # Sheet 2: AI_판독결과
+        df_ocr = pd.DataFrame(ocr_results)
+        if not df_ocr.empty:
+            df_ocr = df_ocr.rename(columns={'destination': '배송지', 'model_name': '모델명', 'item_name': '단품명', 'qty': '수량', 'box_no': '박스번호'})
+            cols = [c for c in ['배송지', '모델명', '단품명', '수량', '박스번호'] if c in df_ocr.columns]
+            df_ocr = df_ocr[cols]
+        else:
+            df_ocr = pd.DataFrame(columns=['배송지', '모델명', '단품명', '수량', '박스번호'])
+            
+        df_ocr.to_excel(writer, index=False, sheet_name='AI_판독결과')
+        ws2 = writer.sheets['AI_판독결과']
+        for col_letter, width in zip(['A','B','C','D','E'], [20, 20, 15, 10, 15]):
+            ws2.column_dimensions[col_letter].width = width
             
     return output.getvalue()
 
@@ -229,12 +239,10 @@ def render_packing_list_page():
                         progress_bar.progress((i + 1) / total_imgs)
                         
                     st.success(f"총 {total_imgs}장의 사진에서 {len(all_ocr_results)}개의 라벨 정보를 판독했습니다!")
-                    with st.expander("AI 판독 결과 (디버깅용)"):
-                        st.json(all_ocr_results)
-                        
+                    
                     final_df = match_and_generate_packing_list(df_req, all_ocr_results)
                     if final_df is not None:
-                        excel_data = generate_excel_bytes(final_df)
+                        excel_data = generate_excel_bytes(final_df, all_ocr_results)
                         
                         st.success("패킹리스트 생성이 완료되었습니다! 아래 버튼을 눌러 다운로드하세요.")
                         st.download_button(
@@ -245,7 +253,7 @@ def render_packing_list_page():
                         )
                         
                         st.markdown("### 📊 최종 결과 미리보기")
-                        st.dataframe(final_df)
+                        st.dataframe(final_df.drop(columns=['중복여부']))
                         
                 except Exception as e:
                     st.error(f"처리 중 오류가 발생했습니다: {e}")
