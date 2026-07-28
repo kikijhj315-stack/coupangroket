@@ -11,11 +11,13 @@ def init_gemini():
         api_key = st.secrets["GEMINI_API_KEY"]
         genai.configure(api_key=api_key)
         
+        # 무료 요금제에서 하루 20건 제한이 있는 3.x 최신 모델 대신,
+        # 하루 1500건까지 무료로 넉넉하게 쓸 수 있는 2.0 버전 모델을 최우선으로 배치합니다.
         model_names = [
-            'gemini-3.5-flash',
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-lite',
             'gemini-2.5-flash',
-            'gemini-flash-latest',
-            'gemini-3.6-flash'
+            'gemini-flash-lite-latest'
         ]
         return model_names
     except Exception as e:
