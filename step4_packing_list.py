@@ -10,19 +10,24 @@ def init_gemini():
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
         genai.configure(api_key=api_key)
-        # 1.5 Flash 모델이 가볍고 빠르며 비전(이미지) 처리에 우수함
-        # 버전 호환성을 위해 gemini-1.5-flash-latest 또는 기본 버전을 시도
-        try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            # 깡통 호출로 모델 존재 여부 테스트를 하면 좋지만 비동기이므로 일단 이름만 리턴
-        except Exception:
-            pass
-            
-        return genai.GenerativeModel('gemini-1.5-flash-latest')
+        
+        # 모델명을 리스트로 준비하여 가장 먼저 성공하는 것을 사용
+        model_names = [
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
+            'gemini-1.5-flash-latest',
+            'gemini-pro-vision'
+        ]
+        
+        # 실제 환경에서 404 에러를 방지하기 위해 생성만 해서 리턴 (오류는 generate_content에서 발생)
+        # 런타임에 직접 시도하도록 함수 시그니처를 약간 변경하거나, 
+        # 사용자가 generate_content를 호출할 때 fall-back 하도록 해야 하지만
+        # 여기서는 가장 권장되는 gemini-1.5-flash를 기본으로 하되 오류 발생 시 어떻게 할지가 문제임.
+        return model_names # 이름 리스트만 반환하도록 변경
     except Exception as e:
         return None
 
-def extract_info_from_image(model, image_bytes):
+def extract_info_from_image(model_names, image_bytes):
     try:
         img = Image.open(io.BytesIO(image_bytes))
         prompt = """
@@ -39,21 +44,34 @@ def extract_info_from_image(model, image_bytes):
           }
         ]
         """
-        response = model.generate_content([prompt, img])
-        text = response.text.strip()
         
-        # Markdown JSON block 제거 처리
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-            
-        data = json.loads(text.strip())
-        return data
+        last_error = None
+        for m_name in model_names:
+            try:
+                model = genai.GenerativeModel(m_name)
+                response = model.generate_content([prompt, img])
+                text = response.text.strip()
+                
+                # Markdown JSON block 제거 처리
+                if text.startswith("```json"):
+                    text = text[7:]
+                if text.startswith("```"):
+                    text = text[3:]
+                if text.endswith("```"):
+                    text = text[:-3]
+                    
+                data = json.loads(text.strip())
+                return data
+            except Exception as e:
+                last_error = e
+                continue
+                
+        # 모든 모델 실패 시 마지막 에러 출력
+        st.error(f"이미지 판독 중 오류 발생 (모든 AI 모델 시도 실패): {last_error}")
+        return []
+        
     except Exception as e:
-        st.error(f"이미지 판독 중 오류 발생: {e}")
+        st.error(f"이미지 처리 중 오류 발생: {e}")
         return []
 
 def match_and_generate_packing_list(df_req, ocr_results):
