@@ -148,24 +148,18 @@ def match_and_generate_packing_list(df_req, ocr_results):
     out_df['출고모델명'] = df['출고모델명']
     out_df['단품명'] = df['단품명']
     out_df['수량'] = df['출고요청']
-    
-    # 숫자형 정렬을 위해 박스번호를 숫자로 변환 시도 (문자열인 경우 대비)
-    out_df['박스번호_raw'] = df['박스번호'] 
-    out_df['박스번호'] = pd.to_numeric(df['박스번호'], errors='coerce').fillna(999999).astype(int)
-    out_df.loc[out_df['박스번호'] == 999999, '박스번호'] = df['박스번호'] # 숫자로 안바뀌면 원래 문자열 유지
+    out_df['박스번호'] = df['박스번호']
     
     out_df['팔렛트번호'] = ''
     out_df['배송지'] = df['배송지']
     out_df['상품바코드'] = df['상품바코드']
     
     # 정렬: 1순위 박스번호, 2순위 배송지
-    # 박스번호가 혼합 타입(숫자+문자)일 수 있으므로 문자열로 강제 변환하여 정렬
-    out_df['sort_box'] = out_df['박스번호'].astype(str).str.zfill(10)
-    out_df = out_df.sort_values(by=['sort_box', '배송지']).drop(columns=['sort_box'])
+    # 박스번호가 빈칸이거나 문자가 섞여있을 수 있으므로 임시 숫자 변환하여 정렬용 키 생성
+    temp_box_num = pd.to_numeric(df['박스번호'], errors='coerce').fillna(999999).astype(int)
+    out_df['sort_box'] = temp_box_num.astype(str).str.zfill(10)
     
-    # 박스번호_raw로 복원 (매핑 안된 빈문자열 유지)
-    out_df['박스번호'] = out_df['박스번호_raw']
-    out_df = out_df.drop(columns=['박스번호_raw'])
+    out_df = out_df.sort_values(by=['sort_box', '배송지']).drop(columns=['sort_box'])
     out_df = out_df.reset_index(drop=True)
     
     return out_df
