@@ -231,7 +231,13 @@ def render_packing_list_page():
                     progress_bar = st.progress(0)
                     total_imgs = len(img_files)
                     
+                    import time # 상단에 추가 안 했으므로 여기서 임포트
+                    
                     for i, img_file in enumerate(img_files):
+                        # 무료 API의 분당 제한(RPM) 회피를 위해 이미지 1장 처리 후 3.5초 대기 (단, 첫 이미지는 대기 생략)
+                        if i > 0:
+                            time.sleep(3.5)
+                            
                         img_bytes = img_file.read()
                         res = extract_info_from_image(gemini_model, img_bytes)
                         if res:
