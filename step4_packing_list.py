@@ -178,6 +178,21 @@ def render_packing_list_page():
     if not gemini_model:
         st.error("⚠️ 구글 Gemini API 키가 설정되지 않았거나 올바르지 않습니다. 스트림릿 Secrets에 `GEMINI_API_KEY`를 설정해주세요.")
         return
+        
+    with st.expander("🛠️ API 모델 연결 테스트 (디버깅용)"):
+        if st.button("사용 가능한 AI 모델 목록 불러오기"):
+            try:
+                available_models = []
+                for m in genai.list_models():
+                    if 'generateContent' in m.supported_generation_methods:
+                        available_models.append(m.name)
+                if available_models:
+                    st.success("API 연결 성공! 사용 가능한 모델들:")
+                    st.write(available_models)
+                else:
+                    st.warning("사용 가능한 모델이 하나도 없습니다. API 키 설정이나 구글 계정 권한을 확인해주세요.")
+            except Exception as e:
+                st.error(f"모델 목록 불러오기 실패: {e}")
 
     req_file = st.file_uploader("1. 출고요청파일 업로드 (Excel)", type=['xlsx'])
     img_files = st.file_uploader("2. 박스 패킹 사진 다중 업로드 (JPG/PNG)", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
