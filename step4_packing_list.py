@@ -11,19 +11,15 @@ def init_gemini():
         api_key = st.secrets["GEMINI_API_KEY"]
         genai.configure(api_key=api_key)
         
-        # 모델명을 리스트로 준비하여 가장 먼저 성공하는 것을 사용
+        # 최신(2026년 이후) Gemini API 모델 리스트로 업데이트
         model_names = [
-            'gemini-1.5-flash',
-            'gemini-1.5-pro',
-            'gemini-1.5-flash-latest',
-            'gemini-pro-vision'
+            'gemini-3.5-flash',
+            'gemini-2.5-flash',
+            'gemini-flash-latest',
+            'gemini-3.6-flash'
         ]
         
-        # 실제 환경에서 404 에러를 방지하기 위해 생성만 해서 리턴 (오류는 generate_content에서 발생)
-        # 런타임에 직접 시도하도록 함수 시그니처를 약간 변경하거나, 
-        # 사용자가 generate_content를 호출할 때 fall-back 하도록 해야 하지만
-        # 여기서는 가장 권장되는 gemini-1.5-flash를 기본으로 하되 오류 발생 시 어떻게 할지가 문제임.
-        return model_names # 이름 리스트만 반환하도록 변경
+        return model_names
     except Exception as e:
         return None
 
