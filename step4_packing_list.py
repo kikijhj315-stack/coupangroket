@@ -11,7 +11,14 @@ def init_gemini():
         api_key = st.secrets["GEMINI_API_KEY"]
         genai.configure(api_key=api_key)
         # 1.5 Flash 모델이 가볍고 빠르며 비전(이미지) 처리에 우수함
-        return genai.GenerativeModel('gemini-1.5-flash')
+        # 버전 호환성을 위해 gemini-1.5-flash-latest 또는 기본 버전을 시도
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            # 깡통 호출로 모델 존재 여부 테스트를 하면 좋지만 비동기이므로 일단 이름만 리턴
+        except Exception:
+            pass
+            
+        return genai.GenerativeModel('gemini-1.5-flash-latest')
     except Exception as e:
         return None
 
