@@ -72,15 +72,39 @@ def extract_info_from_image(model_names, image_bytes):
 
 def match_and_generate_packing_list(df_req, ocr_results):
     # df_req: 출고요청파일 데이터프레임
-    # 필요한 열 확인
-    req_cols = ['발주번호', '배송지', '단품명', '상품바코드', '출고모델명', '출고요청']
-    for c in req_cols:
-        if c not in df_req.columns:
-            st.error(f"출고요청 엑셀 파일에 '{c}' 컬럼이 없습니다.")
+    # 공백 제거 및 열 이름 정규화
+    df_req.columns = df_req.columns.astype(str).str.strip().str.replace('\n', '')
+    
+    # 필수 열 유연한 매칭
+    col_mapping = {
+        '발주번호': ['발주번호', '발주 번호', '발주서번호'],
+        '배송지': ['배송지', '도착지', '배송처'],
+        '단품명': ['단품명', '상품명', '품명'],
+        '상품바코드': ['상품바코드', '바코드', '바코드번호'],
+        '출고모델명': ['출고모델명', '출고 모델명', '모델명'],
+        '출고요청': ['출고요청', '출고요청수량', '수량', '요청수량']
+    }
+    
+    # 엑셀에 있는 실제 컬럼명으로 매핑 찾기
+    actual_cols = {}
+    for req_key, possible_names in col_mapping.items():
+        found = False
+        for p_name in possible_names:
+            if p_name in df_req.columns:
+                actual_cols[req_key] = p_name
+                found = True
+                break
+        if not found:
+            st.error(f"출고요청 엑셀 파일에 '{req_key}' 역할을 하는 컬럼이 없습니다.")
+            st.warning(f"현재 엑셀에서 인식된 컬럼들: {list(df_req.columns)}")
             return None
             
     # 매칭을 위해 복사본 생성 및 박스번호 컬럼 추가
     df = df_req.copy()
+    
+    # 코드 내부에서 사용할 통일된 컬럼명으로 변경
+    df.rename(columns={actual_cols[k]: k for k in col_mapping.keys()}, inplace=True)
+    
     df['박스번호'] = ''
     df['출고요청'] = pd.to_numeric(df['출고요청'], errors='coerce').fillna(0).astype(int)
     
