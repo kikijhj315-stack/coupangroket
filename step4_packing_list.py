@@ -66,12 +66,12 @@ def extract_info_from_image(model_names, image_bytes):
                 last_error = e
                 continue
                 
-        st.error(f"이미지 판독 중 오류 발생 (모든 AI 모델 시도 실패): {last_error}")
-        return []
+        # 모든 모델 실패 시 마지막 에러 발생 (재시도 로직이 잡을 수 있도록)
+        raise Exception(f"{last_error}")
         
     except Exception as e:
-        st.error(f"이미지 처리 중 오류 발생: {e}")
-        return []
+        # 상위 루프에서 429 에러 등을 캐치할 수 있도록 다시 raise
+        raise e
 
 def match_and_generate_packing_list(df_req, ocr_results):
     df_req.columns = df_req.columns.astype(str).str.strip().str.replace('\n', '')
@@ -236,12 +236,32 @@ def render_packing_list_page():
                     import time # 상단에 추가 안 했으므로 여기서 임포트
                     
                     for i, img_file in enumerate(img_files):
-                        # 무료 API의 분당 제한(RPM) 회피를 위해 이미지 1장 처리 후 3.5초 대기 (단, 첫 이미지는 대기 생략)
+                        # 무료 API의 분당 15회 제한(RPM)을 확실히 피하기 위해 5초 대기 (안전 마진 확보)
                         if i > 0:
-                            time.sleep(3.5)
+                            time.sleep(5.0)
                             
                         img_bytes = img_file.read()
-                        res = extract_info_from_image(gemini_model, img_bytes)
+                        
+                        # 429 에러 발생 시 자동 재시도를 위한 루프 추가
+                        max_retries = 3
+                        retry_count = 0
+                        res = None
+                        
+                        while retry_count < max_retries:
+                            try:
+                                res = extract_info_from_image(gemini_model, img_bytes)
+                                break # 성공하면 루프 탈출
+                            except Exception as e:
+                                err_str = str(e)
+                                if "429" in err_str or "exceeded" in err_str.lower() or "quota" in err_str.lower():
+                                    retry_count += 1
+                                    st.warning(f"API 요청 과부하 감지. 15초 대기 후 재시도합니다... ({retry_count}/{max_retries})")
+                                    time.sleep(15.0)
+                                else:
+                                    # 429 에러가 아닌 다른 에러면 그대로 진행(다음 이미지로 넘어감)
+                                    st.error(f"이미지 판독 중 오류 발생: {err_str}")
+                                    break
+                                    
                         if res:
                             all_ocr_results.extend(res)
                         progress_bar.progress((i + 1) / total_imgs)
