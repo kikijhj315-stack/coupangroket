@@ -23,26 +23,30 @@ def init_gemini():
     except Exception as e:
         return None
 
-def extract_info_from_image(model_names, image_bytes):
+def extract_info_from_images_batch(model_names, image_bytes_list):
     try:
-        img = Image.open(io.BytesIO(image_bytes))
-        prompt = """
-        사진에는 택배 박스 위의 라벨 스티커가 있습니다. 라벨 스티커에서 다음 정보를 정확히 추출하세요.
+        imgs = [Image.open(io.BytesIO(b)) for b in image_bytes_list]
+        num_imgs = len(imgs)
+        
+        prompt = f"""
+        입력된 사진들에는 총 {num_imgs}장의 택배 박스 라벨 스티커 사진이 순서대로 들어있습니다.
+        각 사진별로 다음 정보를 정확히 추출하세요.
         1. 배송지: 괄호 () 안에 적힌 텍스트 (예: 대구3)
         2. 모델명: 영어와 숫자가 혼합된 상품코드 (예: TM-FSZ07-ZZWHT)
         3. 단품명(사이즈): 수량 앞의 텍스트 (예: 2XL)
         4. 수량: 대괄호 [] 안에 적힌 숫자 (예: 4)
-        5. 박스번호: 박스 표면에 매직이나 펜으로 크게 적힌 숫자 (사진에 매직 글씨가 안보이면 빈문자열 "")
+        5. 박스번호: 박스 표면에 매직이나 펜으로 크게 적힌 숫자 (없으면 "")
 
-        반드시 아래의 순수 JSON 형식으로만 답변해주세요. 다른 설명은 절대 추가하지 마세요.
+        반드시 아래의 순수 JSON '배열(Array)' 형식으로만 답변해주세요. 사진의 개수({num_imgs}개)와 동일한 개수의 JSON 객체가 배열 안에 있어야 합니다. 다른 설명은 절대 추가하지 마세요.
         [
-          {
+          {{
             "destination": "대구3",
             "model_name": "TM-FSZ07-ZZWHT",
             "item_name": "2XL",
             "qty": 4,
             "box_no": "1"
-          }
+          }},
+          ... (나머지 사진들에 대한 결과)
         ]
         """
         
@@ -50,7 +54,9 @@ def extract_info_from_image(model_names, image_bytes):
         for m_name in model_names:
             try:
                 model = genai.GenerativeModel(m_name)
-                response = model.generate_content([prompt, img])
+                # 프롬프트 텍스트 다음에 여러 개의 이미지를 함께 리스트로 묶어서 전달
+                content_parts = [prompt] + imgs
+                response = model.generate_content(content_parts)
                 text = response.text.strip()
                 
                 if text.startswith("```json"):
@@ -225,7 +231,7 @@ def render_packing_list_page():
     
     if req_file and img_files:
         if st.button("🚀 패킹리스트 AI 생성 시작"):
-            with st.spinner("엑셀 데이터를 분석하고 AI가 사진들을 판독 중입니다... (사진 수에 따라 시간이 걸릴 수 있습니다)"):
+            with st.spinner("엑셀 데이터를 분석하고 AI가 사진들을 묶음(Batch) 판독 중입니다... (속도가 매우 빠릅니다!)"):
                 try:
                     df_req = pd.read_excel(req_file)
                     
@@ -233,39 +239,44 @@ def render_packing_list_page():
                     progress_bar = st.progress(0)
                     total_imgs = len(img_files)
                     
-                    import time # 상단에 추가 안 했으므로 여기서 임포트
+                    import time
                     
-                    for i, img_file in enumerate(img_files):
-                        # 무료 API의 분당 15회 제한(RPM)을 확실히 피하기 위해 5초 대기 (안전 마진 확보)
-                        if i > 0:
-                            time.sleep(5.0)
-                            
-                        img_bytes = img_file.read()
+                    # 5장씩 묶어서 처리
+                    BATCH_SIZE = 5
+                    for i in range(0, total_imgs, BATCH_SIZE):
+                        batch_files = img_files[i:i+BATCH_SIZE]
+                        img_bytes_list = [f.read() for f in batch_files]
                         
-                        # 429 에러 발생 시 자동 재시도를 위한 루프 추가
                         max_retries = 3
                         retry_count = 0
                         res = None
                         
                         while retry_count < max_retries:
                             try:
-                                res = extract_info_from_image(gemini_model, img_bytes)
-                                break # 성공하면 루프 탈출
+                                res = extract_info_from_images_batch(gemini_model, img_bytes_list)
+                                break
                             except Exception as e:
                                 err_str = str(e)
                                 if "429" in err_str or "exceeded" in err_str.lower() or "quota" in err_str.lower():
                                     retry_count += 1
-                                    st.warning(f"API 요청 과부하 감지. 15초 대기 후 재시도합니다... ({retry_count}/{max_retries})")
+                                    st.warning(f"API 요청 과부하 감지. 15초 대기 후 묶음 재시도합니다... ({retry_count}/{max_retries})")
                                     time.sleep(15.0)
                                 else:
-                                    # 429 에러가 아닌 다른 에러면 그대로 진행(다음 이미지로 넘어감)
                                     st.error(f"이미지 판독 중 오류 발생: {err_str}")
                                     break
                                     
                         if res:
                             all_ocr_results.extend(res)
-                        progress_bar.progress((i + 1) / total_imgs)
+                            
+                        # 프로그레스 바 업데이트
+                        current_processed = min(i + BATCH_SIZE, total_imgs)
+                        progress_bar.progress(current_processed / total_imgs)
                         
+                        # 배치 처리 후 무료 API 분당 제한(15회) 방지를 위해 아주 짧게 1.5초만 대기
+                        # 30장을 처리해도 배치 6번이면 끝나므로 분당 제한에 걸릴 위험이 사실상 없음
+                        if current_processed < total_imgs:
+                            time.sleep(1.5)
+                            
                     st.success(f"총 {total_imgs}장의 사진에서 {len(all_ocr_results)}개의 라벨 정보를 판독했습니다!")
                     
                     final_df = match_and_generate_packing_list(df_req, all_ocr_results)
